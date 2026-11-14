@@ -8,6 +8,11 @@ const icon = name => `<svg aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const state = {climate:null,raw:null,results:null,location:{lat:12.97,lon:77.6,name:'Bengaluru, Karnataka'},chart:'rain',mode:'archive',busy:false,map:null,marker:null,overlay:null};
 const defaultRotation=['rice','maize','fallow'];
 let computeTimer,abortController;
+const inputStatus=document.createElement('p');
+inputStatus.id='input-status';inputStatus.className='input-status';inputStatus.hidden=true;inputStatus.setAttribute('role','status');
+$('farm-form').append(inputStatus);
+$('ph').setAttribute('aria-describedby','input-status');
+$('detail-dialog').setAttribute('aria-labelledby','dialog-title');
 
 for(let i=0;i<3;i++){
   $('crop-'+i).innerHTML=CROPS.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
@@ -34,7 +39,7 @@ function syncOutputs(){
 }
 function recalculate(){
   if(!state.climate)return;
-  if(!$('ph').checkValidity()){$('ph').reportValidity();$('export').disabled=true;status('Enter a soil pH between 3 and 10, or leave it blank. Comparisons retain the last valid inputs.',true);return;}
+  if(!validateInputs())return;
   const config=settings();
   try{localStorage.setItem('fieldshift-preferences-v1',JSON.stringify(config));}catch{}
   state.analysis={settings:config,scenario:scenario()};
@@ -42,9 +47,18 @@ function recalculate(){
   $('export').disabled=false;
   renderRotations();
 }
-function scheduleRecalculate(){syncOutputs();clearTimeout(computeTimer);computeTimer=setTimeout(recalculate,120);}
+function validateInputs(){
+  const valid=$('ph').checkValidity();
+  inputStatus.hidden=valid;
+  inputStatus.textContent=valid?'':'Enter a soil pH between 3 and 10, or leave it blank. Comparisons still use the last valid inputs.';
+  $('ph').setAttribute('aria-invalid',String(!valid));
+  $('export').disabled=!valid||!state.results;
+  return valid;
+}
+function scheduleRecalculate(){syncOutputs();clearTimeout(computeTimer);if(validateInputs())computeTimer=setTimeout(recalculate,120);}
 
 async function loadClimate(lat,lon,force=false){
+  if(!validateInputs())return;
   let url;try{url=powerUrl(lat,lon);}catch(e){status(e.message,true);return;}
   abortController?.abort();const controller=new AbortController();abortController=controller;
   state.busy=true;$('load-climate').disabled=true;$('load-climate').textContent='Reading NASA history…';
@@ -68,6 +82,9 @@ async function loadClimate(lat,lon,force=false){
     const climate=summarize(raw);
     if(mode==='live'){try{localStorage.setItem(cacheKey,JSON.stringify(raw));}catch{}}
     state.raw=raw;state.climate=climate;state.mode=mode;state.location={lat,lon,name:isDemo?'Bengaluru, Karnataka':'Selected farm location'};
+    // Never show previous-location comparisons beneath a newly loaded location.
+    state.results=null;state.analysis=null;
+    $('rotation-results').innerHTML='<div class="empty-state">Complete valid field inputs to compare rotations for this location.</div>';
     $('location-name').textContent=state.location.name;
     $('location-coords').textContent=`${Math.abs(lat).toFixed(3)}° ${lat>=0?'N':'S'} · ${Math.abs(lon).toFixed(3)}° ${lon>=0?'E':'W'}`;
     $('latitude').value=lat.toFixed(3);$('longitude').value=lon.toFixed(3);
@@ -75,7 +92,7 @@ async function loadClimate(lat,lon,force=false){
     document.querySelector('.source-pill').innerHTML='<i></i> NASA history loaded';
     const years=climate.annual;
     status(`${mode==='archive'?'Saved NASA response':mode==='cached'?'Locally cached NASA response':'NASA response fetched'} · ${years[0].year}–${years.at(-1).year} · ${years.length} complete calendar years · ${climate.rotations.length} complete Jun–May rotations${climate.missingDays?` · ${climate.missingDays} missing days excluded`:''}.`);
-    renderClimate();recalculate();$('export').disabled=false;
+    renderClimate();recalculate();
   }catch(e){
     if(abortController!==controller)return;
     const text=e.name==='AbortError'?'The NASA request timed out. Try again or use the saved Bengaluru example.':`${e.message} Check your connection or use the saved Bengaluru example.`;
@@ -96,18 +113,21 @@ function renderClimate(){
   $('rain-note').textContent=`${signed(c.rainTrend)} mm / decade · historical trend`;
   $('temp-note').textContent=`${signed(c.tempTrend,2)}°C / decade · historical trend`;
   $('wetness-bar').style.left=(c.wet??0)*100+'%';
+  $('wetness-bar').hidden=c.wet===null;
+  document.querySelector('.metric-foot').textContent=`${fmt(c.peak,1)}°C highest daily maximum in the record`;
   for(const [field,cls] of [['rain','rain-spark'],['temp','heat-spark']]){
     const values=c.annual.map(y=>y[field]), min=Math.min(...values), max=Math.max(...values);
     document.querySelector('.'+cls).innerHTML=values.map(v=>`<i style="height:${25+75*(v-min)/(max-min||1)}%"></i>`).join('');
   }
   const maxRain=Math.max(...c.seasons.map(s=>s.rain));
-  $('season-summary').innerHTML=c.seasons.map(s=>`<div class="season-row"><div class="season-title"><div>${s.name}<span>${s.range}</span></div><b>${fmt(s.rain)} mm</b></div><div class="season-bar"><i style="width:${s.rain/maxRain*100}%"></i></div><div class="season-sub">${fmt(s.temp,1)}°C average · ${fmt(s.dry)}-day longest dry spell on average</div></div>`).join('');
+  $('season-summary').innerHTML=c.seasons.map(s=>`<div class="season-row"><div class="season-title"><div>${s.name}<span>${s.range}</span></div><b>${fmt(s.rain)} mm</b></div><div class="season-bar"><i style="width:${maxRain?s.rain/maxRain*100:0}%"></i></div><div class="season-sub">${fmt(s.temp,1)}°C average · ${fmt(s.dry)}-day longest dry spell on average</div><div class="season-sub season-range">Rain range ${fmt(s.rainStats.min)}–${fmt(s.rainStats.max)} mm · ${fmt(s.peak,1)}°C peak</div></div>`).join('');
   renderChart();
 }
 function renderChart(){
   if(!state.climate)return;
   const key=state.chart, data=state.climate.annual, width=600,height=185,left=42,right=12,top=10,bottom=27;
-  const values=data.map(d=>d[key]),max=Math.max(...values)*1.13,min=key==='rain'?0:Math.floor(Math.min(...values)-1),span=max-min;
+  const values=data.map(d=>d[key]),lo=Math.min(...values),hi=Math.max(...values),padding=(hi-lo||1)*.15;
+  const max=key==='rain'?Math.max(1,hi*1.13):hi+padding,min=key==='rain'?0:lo-padding,span=max-min;
   const step=(width-left-right)/data.length;
   const y=v=>top+(max-v)/span*(height-top-bottom);
   const x=i=>left+(i+.5)*step;
@@ -121,6 +141,10 @@ function renderChart(){
   $('history-chart').innerHTML=svg+'</svg>';
   $('chart-unit').textContent=key==='rain'?'Annual rainfall · mm':'Mean annual temperature · °C';
   $('trend-description').textContent=`${signed(m*10,key==='rain'?0:2)} ${key==='rain'?'mm':'°C'} per decade · linear fit to recorded years, not a forecast`;
+  let variability=$('climate-variability');
+  if(!variability){variability=document.createElement('p');variability.id='climate-variability';variability.className='climate-variability';$('history-chart').after(variability);}
+  const stats=state.climate.rainStats;
+  variability.textContent=key==='rain'?`Annual range ${fmt(stats.min)}–${fmt(stats.max)} mm · year-to-year variability ${fmt(stats.cv,1)}% (standard deviation ÷ mean)`:`Highest daily maximum ${fmt(state.climate.peak,1)}°C in the complete-year record`;
 }
 
 function reason(r){
@@ -139,7 +163,7 @@ function renderRotations(){
   const {baseline,best,alternate,count}=state.results,sc=state.analysis.scenario;
   $('candidate-count').textContent=`${fmt(count)} alternatives evaluated`;
   $('scenario-label').textContent=sc.rain||sc.temp?`What-if: ${signed(sc.rain)}% rainfall · +${sc.temp}°C · historical years adjusted`:'Comparing against the historical climate';
-  $('rotation-results').innerHTML=[['baseline','YOUR REFERENCE','Current rotation',baseline],['best','HIGHEST WEIGHTED SCORE','Fits your priorities',best],['alternate','ANOTHER WAY FORWARD','Water-first alternative',alternate]].map(([key,eyebrow,title,r])=>{
+  $('rotation-results').innerHTML=[['baseline','YOUR REFERENCE','Current rotation',baseline],['best','TOP-SCORING ALTERNATIVE','Fits your priorities',best],['alternate','ANOTHER WAY FORWARD','Water-first alternative',alternate]].map(([key,eyebrow,title,r])=>{
     const metrics=[['water','Water fit'],['soil','Soil health'],['climate','Climate fit'],['cover','Soil cover'],['income','Income index']];
     return `<article class="rotation-card ${key}" data-rotation="${key}"><div class="rotation-top"><div><p class="eyebrow">${eyebrow}</p><h3>${title}</h3></div><div class="score-circle" title="Weighted screening score out of 100">${fmt(r.score)}<small>/100</small></div></div><div class="rotation-body"><div class="crop-sequence">${r.crops.map((c,i)=>`<div class="crop-line"><span class="crop-number">${i+1}</span><div class="crop-name">${c.name}${c.legume?'<span class="crop-family">LEGUME</span>':''}</div><span class="crop-season">${SEASONS[i].range}</span></div>`).join('')}</div><div class="score-bars">${metrics.map(([k,label])=>`<div class="score-bar">${label}<span>${fmt(r.scores[k])}</span><div class="bar-track"><i style="width:${r.scores[k]}%"></i></div></div>`).join('')}</div><div class="replay"><strong>${r.covered} of ${r.yearly.length} rotation years</strong><p>Available water met demand in every crop season${sc.rain||sc.temp?' under this what-if':''}.</p><div class="year-dots" aria-label="Green: demand met; gold: a seasonal shortfall">${r.yearly.map(y=>`<i class="${y.covered?'good':''}" title="Jun ${y.year}–May ${y.year+1}: ${fmt(y.deficit)} mm total unmet demand"></i>`).join('')}</div></div><p class="rotation-reason">${reason(r)}</p><p class="rotation-risk">${risk(r)}</p></div><div class="rotation-details"><span>${fmt(r.need)} mm crop demand / cycle</span><button class="text-button" data-detail="${key}">Why this score ↗</button></div></article>`;
   }).join('');
@@ -151,7 +175,8 @@ function dialog(title,html,eyebrow='FIELD SHIFT / THE EVIDENCE'){
 }
 function showRotation(key){
   const r=state.results?.[key];if(!r)return;const sc=state.analysis.scenario,w=state.analysis.settings.weights;
-  dialog(r.crops.map(c=>c.name).join(' → '),`<div class="notice">${fmt(r.score,1)} / 100 weighted screening score. This is a comparison index, not a probability of success or a yield forecast.</div><div class="detail-grid"><div><h3>Why this option</h3><p>${reason(r)}</p><h3>What could go wrong</h3><p>${risk(r)} ${r.phPenalty?'The supplied pH reduces the soil suitability score.':''} ${r.soilPenalty?'Some crops prefer a different soil texture.':''}</p></div><div><h3>Evidence</h3><p>NASA POWER, ${state.climate.annual[0].year}–${state.climate.annual.at(-1).year}, at ${state.location.lat.toFixed(3)}, ${state.location.lon.toFixed(3)}. ${r.yearly.length} complete June–May cycles replayed. Rainfall adjustment ${signed(sc.rain)}%; temperature +${sc.temp}°C.</p><h3>What we do not know</h3><p>POWER is a coarse regional grid, not a field sensor. Local varieties, prices, pests, soil depth, infiltration and management can change the result. Verify with local agronomic advice.</p></div></div><h3>Season-by-season water accounting</h3><div class="table-scroll"><table><thead><tr><th>Season / crop</th><th>Crop demand</th><th>Rain in growth window</th><th>Available water*</th><th>Mean unmet demand</th></tr></thead><tbody>${r.parts.map((p,i)=>`<tr><td>${SEASONS[i].range}<br>${p.crop.name}</td><td>${fmt(p.need)} mm</td><td>${fmt(p.rain)} mm</td><td>${fmt(p.available)} mm</td><td>${fmt(p.deficit)} mm</td></tr>`).join('')}</tbody></table></div><p>*Rainfall × an illustrative capture factor (${({sandy:0.65,loam:0.8,clay:0.75})[settings().soil]} for ${settings().soil}) + ${settings().irrigation} mm irrigation per cropped season. No water carries between seasons. Deficits are clipped at zero before averaging, so average demand minus average supply may differ from the mean deficit.</p><h3>Replay the past</h3><p>${r.rainCovered} of ${r.yearly.length} cycles met all crop demand with captured rain alone. With your irrigation input, ${r.covered} cycles met demand; ${r.severe} cycles had more than 100 mm total unmet demand. The annual deficit range is ${fmt(r.gapRange[0])}–${fmt(r.gapRange[1])} mm. These are historical counts, not future odds.</p><h3>How priorities affect the score</h3><p>Water × ${w.water}, soil health × ${w.soil}, income index × ${w.income}, and the average of climate fit and soil cover × ${w.risk}; divided by the total slider weight. With all weights at zero, the five component scores receive equal weight.</p><button class="button secondary" data-open="method">Read all assumptions</button>`);
+  dialog(r.crops.map(c=>c.name).join(' → '),`<div class="notice">${fmt(r.score,1)} / 100 weighted screening score. This is a comparison index, not a probability of success or a yield forecast.</div><div class="detail-grid"><div><h3>Why this option</h3><p>${reason(r)}</p><h3>What could go wrong</h3><p>${risk(r)} ${r.phPenalty?'The supplied pH reduces the soil suitability score.':''} ${r.soilPenalty?'Some crops prefer a different soil texture.':''}</p></div><div><h3>Evidence</h3><p>NASA POWER, ${state.climate.annual[0].year}–${state.climate.annual.at(-1).year}, at ${state.location.lat.toFixed(3)}, ${state.location.lon.toFixed(3)}. ${r.yearly.length} complete June–May cycles replayed. Rainfall adjustment ${signed(sc.rain)}%; temperature +${sc.temp}°C.</p><h3>What we do not know</h3><p>POWER is a coarse regional grid, not a field sensor. Local varieties, prices, pests, soil depth, infiltration and management can change the result. Verify with local agronomic advice.</p></div></div><h3>Season-by-season water accounting</h3><div class="table-scroll"><table><thead><tr><th>Season / crop</th><th>Crop demand</th><th>Rain in growth window</th><th>Available water*</th><th>Mean unmet demand</th></tr></thead><tbody>${r.parts.map((p,i)=>`<tr><td>${SEASONS[i].range}<br>${p.crop.name}</td><td>${fmt(p.need)} mm</td><td>${fmt(p.rain)} mm</td><td>${fmt(p.available)} mm</td><td>${fmt(p.deficit)} mm</td></tr>`).join('')}</tbody></table></div><p>*Rainfall × an illustrative capture factor (${({sandy:0.65,loam:0.8,clay:0.75})[state.analysis.settings.soil]} for ${state.analysis.settings.soil}) + ${state.analysis.settings.irrigation} mm irrigation per cropped season. No water carries between seasons. Deficits are clipped at zero before averaging, so average demand minus average supply may differ from the mean deficit.</p><h3>Replay the past</h3><p>${r.rainCovered} of ${r.yearly.length} cycles met all crop demand with captured rain alone. With your irrigation input, ${r.covered} cycles met demand; ${r.severe} cycles had more than 100 mm total unmet demand. The annual deficit range is ${fmt(r.gapRange[0])}–${fmt(r.gapRange[1])} mm. These are historical counts, not future odds.</p><h3>How priorities affect the score</h3><p>Water × ${w.water}, soil health × ${w.soil}, income index × ${w.income}, and the average of climate fit and soil cover × ${w.risk}; divided by the total slider weight. With all weights at zero, the five component scores receive equal weight.</p><button class="button secondary" data-open="method">Read all assumptions</button>`);
+  $('dialog-body').insertAdjacentHTML('beforeend',`<details class="replay-table"><summary>Inspect all ${r.yearly.length} historical rotation cycles</summary><p>Unmet demand is the sum of each crop-season shortfall. A surplus in one season does not cancel a shortfall in another. Values use the displayed scenario and irrigation assumptions.</p><div class="table-scroll"><table><thead><tr><th>Jun–May cycle</th>${r.crops.map(c=>`<th>${c.name}<br>shortfall (mm)</th>`).join('')}<th>Total (mm)</th><th>All demand met?</th></tr></thead><tbody>${r.yearly.map(y=>`<tr><td>${y.year}–${y.year+1}</td>${y.parts.map(p=>`<td>${fmt(p.deficit,1)}</td>`).join('')}<td>${fmt(y.deficit,1)}</td><td>${y.covered?'Yes':'No'}</td></tr>`).join('')}</tbody></table></div></details>`);
 }
 
 const resources=[

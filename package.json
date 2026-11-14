@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Transparent crop rotation exploration using real NASA POWER history and GIBS imagery",
   "scripts": {
-    "start": "python -m http.server 5173 --directory dist --bind 127.0.0.1",
+    "start": "python run.py",
     "test": "node tests/model.test.mjs"
   },
   "devDependencies": {

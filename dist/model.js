@@ -24,6 +24,13 @@ export const mean = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : nu
 const sum = arr => arr.reduce((a,b)=>a+b,0);
 const clamp = n => Math.max(0,Math.min(100,n));
 const valid = (v,fill=-999) => Number.isFinite(v) && v !== fill && v > -900;
+const yearLength = year => year%4===0&&(year%100!==0||year%400===0)?366:365;
+export function distribution(values){
+  const numbers=values.filter(Number.isFinite);
+  if(!numbers.length)return {min:null,max:null,sd:null,cv:null};
+  const average=mean(numbers),sd=Math.sqrt(mean(numbers.map(v=>(v-average)**2)));
+  return {min:Math.min(...numbers),max:Math.max(...numbers),sd,cv:average>0?sd/average*100:null};
+}
 export function slope(points) {
   if(points.length<2) return 0;
   const x=mean(points.map(p=>p[0])),y=mean(points.map(p=>p[1]));
@@ -38,8 +45,8 @@ export function summarize(raw) {
   const calendarYears=[...new Set(all.map(d=>d.year))];
   const annual=calendarYears.map(year=>{
     const days=all.filter(d=>d.year===year), rains=days.filter(d=>valid(d.rain,fill)), temps=days.filter(d=>valid(d.temp,fill)), highs=days.filter(d=>valid(d.max,fill));
-    const expected=(year%4===0&&(year%100!==0||year%400===0))?366:365;
-    return {year,rain:sum(rains.map(d=>d.rain)),temp:mean(temps.map(d=>d.temp)),hot:highs.filter(d=>d.max>35).length,complete:rains.length===expected&&temps.length===expected&&highs.length===expected};
+    const expected=yearLength(year);
+    return {year,rain:sum(rains.map(d=>d.rain)),temp:mean(temps.map(d=>d.temp)),peak:highs.length?Math.max(...highs.map(d=>d.max)):null,hot:highs.filter(d=>d.max>35).length,complete:rains.length===expected&&temps.length===expected&&highs.length===expected};
   }).filter(d=>d.complete);
   // A rotation year runs June to May; incomplete boundary years are excluded.
   const rotations=calendarYears.map(year=>({year,seasons:SEASONS.map((season,i)=>{
@@ -51,8 +58,9 @@ export function summarize(raw) {
     return {rain:sum(days.filter(d=>valid(d.rain,fill)).map(d=>d.rain)),temp:mean(days.filter(d=>valid(d.temp,fill)).map(d=>d.temp)),max:Math.max(...days.filter(d=>valid(d.max,fill)).map(d=>d.max)),hot:days.filter(d=>valid(d.max,fill)&&d.max>35).length,wet:mean(days.filter(d=>valid(d.wet,fill)).map(d=>d.wet)),dry,complete,days};
   })})).filter(y=>y.seasons.every(s=>s.complete));
   if(annual.length<3 || rotations.length<2) throw new Error('Not enough complete years returned. At least three calendar years are required.');
-  const seasons=SEASONS.map((s,i)=>({...s,rain:mean(rotations.map(y=>y.seasons[i].rain)),temp:mean(rotations.map(y=>y.seasons[i].temp)),hot:mean(rotations.map(y=>y.seasons[i].hot)),wet:mean(rotations.map(y=>y.seasons[i].wet).filter(v=>v!==null)),dry:mean(rotations.map(y=>y.seasons[i].dry))}));
-  return {annual,rotations,seasons,rain:mean(annual.map(y=>y.rain)),temp:mean(annual.map(y=>y.temp)),hot:mean(annual.map(y=>y.hot)),wet:mean(all.filter(d=>valid(d.wet,fill)).map(d=>d.wet)),rainTrend:slope(annual.map(y=>[y.year,y.rain]))*10,tempTrend:slope(annual.map(y=>[y.year,y.temp]))*10,missingDays:all.filter(d=>!valid(d.rain,fill)||!valid(d.temp,fill)||!valid(d.max,fill)).length,raw};
+  const seasons=SEASONS.map((s,i)=>({...s,rain:mean(rotations.map(y=>y.seasons[i].rain)),rainStats:distribution(rotations.map(y=>y.seasons[i].rain)),temp:mean(rotations.map(y=>y.seasons[i].temp)),peak:Math.max(...rotations.map(y=>y.seasons[i].max)),hot:mean(rotations.map(y=>y.seasons[i].hot)),wet:mean(rotations.map(y=>y.seasons[i].wet).filter(v=>v!==null)),dry:mean(rotations.map(y=>y.seasons[i].dry))}));
+  const missingDays=sum(calendarYears.map(year=>yearLength(year)-all.filter(d=>d.year===year&&valid(d.rain,fill)&&valid(d.temp,fill)&&valid(d.max,fill)).length));
+  return {annual,rotations,seasons,rainStats:distribution(annual.map(y=>y.rain)),peak:Math.max(...annual.map(y=>y.peak)),rain:mean(annual.map(y=>y.rain)),temp:mean(annual.map(y=>y.temp)),hot:mean(annual.map(y=>y.hot)),wet:mean(all.filter(d=>valid(d.wet,fill)).map(d=>d.wet)),rainTrend:slope(annual.map(y=>[y.year,y.rain]))*10,tempTrend:slope(annual.map(y=>[y.year,y.temp]))*10,missingDays,raw};
 }
 export function scoreRotation(ids, climate, settings, scenario={rain:0,temp:0}) {
   const crops=ids.map(byId);

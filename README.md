@@ -7,10 +7,12 @@ A working crop-rotation explorer built from the supplied **Field-Shift-Hackathon
 From this directory, run:
 
 ```powershell
-python -m http.server 5173 --directory dist --bind 127.0.0.1
+python run.py
 ```
 
 Open **http://127.0.0.1:5173**. No build, API key, database, or runtime package installation is required. Python serves files only; the calculations run in browser JavaScript. Opening `index.html` directly with `file://` will not work because ES modules and fetch require an HTTP origin.
+
+From the parent workspace, run `python field-shift/run.py`. The launcher finds the app independently of your working directory. Pass `--port 5174` if port 5173 is occupied.
 
 ## Implemented guide requirements
 
@@ -21,9 +23,9 @@ Open **http://127.0.0.1:5173**. No build, API key, database, or runtime package 
 | Local soil knowledge | Sandy / loam / clay, optional pH, explicit irrigation assumptions |
 | Crop characteristics | 12 crops plus residue-covered fallow; all traits visible in Method & limitations |
 | Farmer priorities | Water, soil, income index, lower exposure; weights normalized |
-| Climate history | Annual rainfall/temperature charts, least-squares trends, heat days, wetness, seasonal rain and longest dry spells |
+| Climate history | Annual rainfall/temperature charts, least-squares trends, peak heat, rainfall variability and ranges, wetness, seasonal rain and longest dry spells |
 | Rotation comparison | Baseline always retained; highest weighted score; distinct water-first alternative |
-| Historical uncertainty | Every rotation replayed over all complete June–May cycles; coverage counts and shortfall range |
+| Historical uncertainty | Every rotation replayed over all complete June–May cycles; coverage counts, shortfall range and an inspectable year-by-year table |
 | What-if | Rainfall −30% to +30%; temperature +0 to +3°C; scores recomputed |
 | Explanations | Why / risk / evidence / unknowns, seasonal water accounting, exposed rules |
 | Satellite map | Real NASA GIBS MODIS archived image; live MODIS NDVI/true color, GPM IMERG and SMAP visualizations |
