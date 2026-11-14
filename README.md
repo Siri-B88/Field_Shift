@@ -18,7 +18,7 @@ From the parent workspace, run `python field-shift/run.py`. The launcher finds t
 
 | Guide requirement | Implementation |
 | --- | --- |
-| Location selection | Clickable Leaflet map and validated latitude/longitude inputs |
+| Location selection | Village/town/postal-code search, district/state context, current-location fallback, labeled road map, draggable pin and validated coordinates |
 | NASA observations | Real NASA POWER daily rainfall, mean/max/min air temperature and modeled root-zone wetness; 2006–2025 |
 | Local soil knowledge | Sandy / loam / clay, optional pH, explicit irrigation assumptions |
 | Crop characteristics | 12 crops plus residue-covered fallow; all traits visible in Method & limitations |
@@ -50,6 +50,16 @@ python scripts/fetch-resources.py
 ```
 
 The script preserves an existing POWER snapshot and uses public NASA/Leaflet URLs. It requires network access. Internet is required for other locations, live layers, OpenStreetMap base tiles, and the optional web font. The saved default numerical example and imagery work without those external services once the local app is served.
+
+## Finding villages
+
+Enter a village, town or PIN/postal code, optionally add its district/state, and press **Search places**. Choose the correct match, check the pin on the labeled road map, then press **Load NASA history**. The previous analysis keeps its location label until new climate data loads successfully. The selected place name appears in the exported report.
+
+Search combines [Photon/OpenStreetMap](https://photon.komoot.io/) with [GeoNames via Open-Meteo](https://open-meteo.com/en/docs/geocoding-api). It does not restrict results to Bengaluru or exclude hamlets. Same-name places in different regions remain separate; nearby duplicate records are merged. Queries preserve local scripts. Search happens only on explicit submission; successful searches are cached in memory for ten minutes. These public services have incomplete coverage and usage limits; larger/commercial deployments should configure appropriate dedicated/paid service access. No public Nominatim API is used.
+
+If a village is missing, try another spelling, a nearby town or postal code, use **Use my location** (browser permission required), or click/drag the map pin. A place result is a locality center, not a verified field boundary. Five decimal places help place the pin; they do not improve NASA POWER's regional resolution.
+
+Additional checks: `node tests/geocoding.test.mjs`, `node tests/search.browser.test.mjs` (local server required), and `node tests/live-search.mjs` (network required).
 
 ## Scientific scope
 

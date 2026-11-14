@@ -1,9 +1,10 @@
 import {chromium} from '@playwright/test';
 import assert from 'node:assert/strict';
 import {mkdir} from 'node:fs/promises';
-const browser=await chromium.launch({headless:true,executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'});
+const browser=await chromium.launch({headless:true,executablePath:process.env.FIELD_SHIFT_BROWSER||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'});
 await mkdir('qa',{recursive:true});
 const page=await browser.newPage({viewport:{width:1440,height:1100},deviceScaleFactor:1});
+page.setDefaultTimeout(30000);
 const errors=[];page.on('pageerror',e=>errors.push(e.message));
 // Keep visual checks deterministic; NASA's saved numerical and imagery data remain real.
 await page.route('https://fonts.googleapis.com/**',r=>r.abort());

@@ -1,13 +1,18 @@
 import {CROPS, SEASONS, summarize, recommend, powerUrl, mean, slope} from './model.js';
+import {searchPlaces} from './geocoding.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = (n,d=0) => Number.isFinite(n)?n.toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d}):'—';
 const signed = (n,d=0) => `${n>0?'+':''}${fmt(n,d)}`;
 const icon = name => `<svg aria-hidden="true"><use href="#i-${name}"/></svg>`;
-const state = {climate:null,raw:null,results:null,location:{lat:12.97,lon:77.6,name:'Bengaluru, Karnataka'},chart:'rain',mode:'archive',busy:false,map:null,marker:null,overlay:null};
+const state = {climate:null,raw:null,results:null,location:{lat:12.97,lon:77.6,name:'Bengaluru, Karnataka'},draft:null,chart:'rain',mode:'archive',busy:false,map:null,marker:null,overlay:null};
 const defaultRotation=['rice','maize','fallow'];
 let computeTimer,abortController;
+let searchController,searchSequence=0,placeMatches=[];
+for(const id of ['latitude','longitude'])$(id).step='0.00001';
+$('layer').insertAdjacentHTML('afterbegin','<option value="streets">Place names & roads</option>');
+$('layer').value='archive';
 const inputStatus=document.createElement('p');
 inputStatus.id='input-status';inputStatus.className='input-status';inputStatus.hidden=true;inputStatus.setAttribute('role','status');
 $('farm-form').append(inputStatus);
@@ -63,7 +68,9 @@ async function loadClimate(lat,lon,force=false){
   abortController?.abort();const controller=new AbortController();abortController=controller;
   state.busy=true;$('load-climate').disabled=true;$('load-climate').textContent='Reading NASA history…';
   const isDemo=Math.abs(lat-12.97)<0.00001&&Math.abs(lon-77.6)<0.00001;
-  const cacheKey=`fieldshift-power-2006-2025-${lat.toFixed(3)}-${lon.toFixed(3)}`;
+  const selected=state.draft&&Math.abs(state.draft.lat-lat)<0.000001&&Math.abs(state.draft.lon-lon)<0.000001?{...state.draft}:null;
+  const locationName=selected?.name||(isDemo?'Bengaluru, Karnataka':'Selected farm location');
+  const cacheKey=`fieldshift-power-2006-2025-${lat.toFixed(5)}-${lon.toFixed(5)}`;
   status(isDemo&&!force?'Reading the saved NASA POWER observations…':'Fetching 20 years from NASA POWER. Your existing analysis stays visible while it loads.');
   const timeout=setTimeout(()=>controller.abort(),120000);
   try{
@@ -81,14 +88,17 @@ async function loadClimate(lat,lon,force=false){
     if(controller.signal.aborted)return;
     const climate=summarize(raw);
     if(mode==='live'){try{localStorage.setItem(cacheKey,JSON.stringify(raw));}catch{}}
-    state.raw=raw;state.climate=climate;state.mode=mode;state.location={lat,lon,name:isDemo?'Bengaluru, Karnataka':'Selected farm location'};
+    state.raw=raw;state.climate=climate;state.mode=mode;state.location={lat,lon,name:locationName};
     // Never show previous-location comparisons beneath a newly loaded location.
     state.results=null;state.analysis=null;
     $('rotation-results').innerHTML='<div class="empty-state">Complete valid field inputs to compare rotations for this location.</div>';
     $('location-name').textContent=state.location.name;
+    $('location-name').title=state.location.name;
     $('location-coords').textContent=`${Math.abs(lat).toFixed(3)}° ${lat>=0?'N':'S'} · ${Math.abs(lon).toFixed(3)}° ${lon>=0?'E':'W'}`;
-    $('latitude').value=lat.toFixed(3);$('longitude').value=lon.toFixed(3);
-    moveMarker(lat,lon,false);state.map?.setView([lat,lon],7);
+    $('latitude').value=lat.toFixed(5);$('longitude').value=lon.toFixed(5);
+    moveMarker(lat,lon,false);state.map?.setView([lat,lon],selected?Math.max(7,state.map.getZoom()):7);
+    $('selected-place').hidden=false;
+    $('selected-place').textContent=`NASA analysis loaded for ${locationName} · ${lat.toFixed(5)}, ${lon.toFixed(5)}. Climate data remains regional, even with a precise pin.`;
     document.querySelector('.source-pill').innerHTML='<i></i> NASA history loaded';
     const years=climate.annual;
     status(`${mode==='archive'?'Saved NASA response':mode==='cached'?'Locally cached NASA response':'NASA response fetched'} · ${years[0].year}–${years.at(-1).year} · ${years.length} complete calendar years · ${climate.rotations.length} complete Jun–May rotations${climate.missingDays?` · ${climate.missingDays} missing days excluded`:''}.`);
@@ -214,18 +224,68 @@ function showMethod(){
   dialog('Clear rules. Visible assumptions.',`<h3>What Field Shift does</h3><p>Compares three-season rotations using NASA weather history, farmer-entered soil and irrigation, a small crop table, and adjustable priorities. This prototype follows a Southern Karnataka June–September / October–January / February–May calendar. Coordinates work globally, but this crop calendar and crop list are not calibrated for other regions.</p><h3>Climate history and quality</h3><p>Daily NASA POWER observations are requested for 1 Jan 2006–31 Dec 2025. Fill values (including −999) are treated as missing, never as rain or temperature. Only complete calendar years enter annual charts. Only complete June–May cycles enter the replay: a complete 20-calendar-year file therefore yields 19 rotation cycles. A dry day has less than 1 mm rain; a very hot day exceeds 35°C. Trends are ordinary least squares, reported per decade.</p><h3>Water fit</h3><p>Indicative crop water demand is the midpoint of the table range. The crop starts on the first day of its planning season; only rain during its assumed growth duration counts. Captured rain is 65% for sandy soil, 80% for loam and 75% for clay, plus 0 / 150 / 350 mm of selected irrigation. These are illustrative capture assumptions, not a measured soil-water balance. There is no water storage between seasons, irrigation efficiency model, runoff routing, or daily stress model. Water fit is min(100, supply ÷ demand × 100), averaged across seasons and complete cycles. Fallow has zero crop demand and a water score of 100.</p><h3>What-if controls</h3><p>The rainfall slider scales daily rain by −30% to +30%. Temperature adds 0–3°C to mean and maximum air temperature. Crop water demand rises by an illustrative 4% per added °C. The model recomputes water and climate fit against the adjusted historical days. This is a sensitivity test, not a downscaled climate projection.</p><h3>The other four scores</h3><p><strong>Climate:</strong> 100 minus 12 points per °C outside the assumed mean-temperature range and 45 times the fraction of growth-window days above the crop’s upper temperature bound, clipped to 0–100. <strong>Soil:</strong> starts at 50, adds 25 for a legume and 8 per distinct cropped family; subtracts 12 for each adjacent same-family pair (including the year boundary), 10 per duplicate crop, average pH distance × 12, and 12 per crop with a nonpreferred soil texture (averaged). <strong>Cover:</strong> duration-weighted assumed crop cover with 25/100 cover after harvest; retained-residue fallow scores 45. This is a cover proxy, not a measured erosion rate. <strong>Income:</strong> an illustrative relative index, not prices, profit or yield.</p><h3>Search and priorities</h3><p>All season-eligible combinations from 12 crops plus fallow are scored. Three identical crops and more than one fallow season are excluded from alternatives. The baseline is always shown even if it breaks those assumptions. Alternatives include the highest weighted score and a distinct option ranked by water fit, then lower demand. Farmer weights map to water, soil, income, and the average of climate and cover. All-zero weights fall back to equal weights across the five components. “Highest” always refers to this model and candidate set.</p><h3>Crop-trait table</h3><p>Water ranges use the supplied guide and <a href="https://www.fao.org/4/s2022e/s2022e07.htm" target="_blank" rel="noreferrer">FAO indicative crop-water guidance</a>. Growth durations, temperature ranges, pH, cover, income and seasonal eligibility are prototype assumptions; they need local cultivar and extension-service validation. A legume’s nitrogen benefit depends on nodulation, residue handling and other management.</p><div class="table-scroll"><table><thead><tr><th>Crop</th><th>Family</th><th>Water mm</th><th>Temp °C</th><th>Days</th><th>pH</th><th>Income index</th></tr></thead><tbody>${CROPS.map(c=>`<tr><td>${c.name}</td><td>${c.family}</td><td>${c.water.join('–')}</td><td>${c.temp.join('–')}</td><td>${c.days}</td><td>${c.ph.join('–')}</td><td>${c.income}</td></tr>`).join('')}</tbody></table></div><div class="notice warning">POWER is regional gridded data (roughly tens of kilometres), not field-scale measurement. The wetness index is modeled; it is not the same quantity as volumetric SMAP moisture. These scores have not been validated against farm outcomes. Review the assumptions with local agricultural expertise before making a planting decision.</div><p>Built from the supplied Field Shift guide and challenge resource text. NASA supplies data; NASA does not endorse this independent project. The app uses explainable rules, not a trained yield or profit prediction model.</p>`);
 }
 
+function placeMessage(message,error=false){$('place-search-status').textContent=message;$('place-search-status').classList.toggle('error',error);}
+function searchBusy(busy){$('search-places').disabled=busy;$('search-places').innerHTML=busy?'Searching places…':'Search places '+icon('arrow');$('place-search-form').setAttribute('aria-busy',String(busy));}
+function cancelPlaceSearch(){searchSequence++;searchController?.abort();searchController=null;searchBusy(false);}
+function selectDraftLocation(place,{streets=false,zoom=null}={}){
+  const lat=+Number(place.lat).toFixed(5),lon=+Number(place.lon).toFixed(5);
+  if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)return;
+  cancelPlaceSearch();
+  // A previously requested location must never overwrite a newly selected pin.
+  if(state.busy){const old=abortController;abortController=null;old?.abort();state.busy=false;$('load-climate').disabled=false;$('load-climate').innerHTML='Load NASA history '+icon('arrow');}
+  state.draft={lat,lon,name:place.name||'Selected farm location'};
+  $('latitude').value=lat.toFixed(5);$('longitude').value=lon.toFixed(5);
+  if(streets){$('layer').value='streets';setLayer();}
+  state.map?.setView([lat,lon],zoom??state.map.getZoom());
+  moveMarker(lat,lon);
+  $('selected-place').hidden=false;
+  $('selected-place').textContent=`Pin selected: ${state.draft.name} · ${lat.toFixed(5)}, ${lon.toFixed(5)}. Check the pin, then choose “Load NASA history”.`;
+  status(`New pin selected. Load NASA history to analyse it.${state.climate?' The results below still describe '+state.location.name+'.':''}`);
+}
+async function findPlaces(event){
+  event.preventDefault();if($('search-places').disabled)return;
+  cancelPlaceSearch();const seq=searchSequence,controller=new AbortController();searchController=controller;
+  placeMatches=[];$('place-results').replaceChildren();$('place-results').hidden=true;
+  searchBusy(true);placeMessage('Searching village names in two place databases…');
+  try{
+    const response=await searchPlaces($('place-query').value,$('place-region').value,{signal:controller.signal});
+    if(seq!==searchSequence)return;
+    placeMatches=response.places;
+    if(!placeMatches.length){placeMessage(`${response.partial?'One place service is unavailable. ':''}No matching place was found. Try another spelling, a local-script name, or a nearby town / PIN code. You can also use your current location or click the map.`,response.partial);return;}
+    $('place-results').innerHTML=placeMatches.map((p,i)=>`<li><button type="button" class="place-result" data-place-index="${i}" aria-pressed="false"><span class="place-result-name">${esc(p.name)}<small>${esc(p.kind)}</small></span><span class="place-result-context">${esc(p.context||'Region not supplied')} · ${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}</span><span class="place-result-source">${esc(p.sources.join(' + '))}</span></button></li>`).join('');
+    $('place-results').hidden=false;
+    placeMessage(`${placeMatches.length} matching ${placeMatches.length===1?'place':'places'}. Choose the correct district/state and check the pin.${response.partial?' One database is unavailable; these matches are from the other source.':''}`);
+  }catch(error){if(seq===searchSequence&&error.name!=='AbortError')placeMessage(error.message,true);}
+  finally{if(seq===searchSequence)searchBusy(false);}
+}
+function useCurrentLocation(){
+  cancelPlaceSearch();const seq=searchSequence;
+  if(!navigator.geolocation){placeMessage('Location access is unavailable in this browser. Search for a place or use the map pin.',true);return;}
+  $('use-location').disabled=true;placeMessage('Waiting for your browser’s location permission…');
+  navigator.geolocation.getCurrentPosition(position=>{
+    $('use-location').disabled=false;if(seq!==searchSequence)return;
+    selectDraftLocation({lat:position.coords.latitude,lon:position.coords.longitude,name:'Your current location'},{streets:true,zoom:15});
+    placeMessage(`Current location selected (reported accuracy about ${fmt(position.coords.accuracy)} m). Move the pin if your field is elsewhere.`);
+  },error=>{
+    $('use-location').disabled=false;if(seq!==searchSequence)return;
+    placeMessage(error.code===1?'Location permission was declined. You can still search by village name or place the pin on the map.':'Your current location could not be determined. Try village search or place the pin on the map.',true);
+  },{enableHighAccuracy:true,timeout:15000,maximumAge:60000});
+}
 function moveMarker(lat,lon,pending=true){
-  if(state.marker){state.marker.setLatLng([lat,lon]);state.marker.setTooltipContent(pending?'Selected location · load history':state.location.name);}
-  $('map-selection').textContent=pending?`${lat.toFixed(3)}, ${lon.toFixed(3)} · press “Load NASA history” to analyse`:`${state.location.name} · ${lat.toFixed(3)}, ${lon.toFixed(3)}`;
+  const name=pending?(state.draft?.name||'Selected location'):state.location.name;
+  if(state.marker){state.marker.setLatLng([lat,lon]);state.marker.setTooltipContent(esc(name)+(pending?' · load history':''));}
+  $('map-selection').textContent=`${name} · ${lat.toFixed(5)}, ${lon.toFixed(5)}${pending?' · load NASA history to analyse':''}`;
 }
 function initMap(){
   if(!window.L){$('map').innerHTML='<p style="padding:30px">Map assets could not load. Use the latitude and longitude fields to select your farm.</p>';return;}
   const L=window.L;
-  state.map=L.map('map',{zoomControl:false,scrollWheelZoom:false,minZoom:2,maxZoom:12}).setView([12.97,77.6],7);
+  state.map=L.map('map',{zoomControl:false,scrollWheelZoom:false,minZoom:2,maxZoom:18}).setView([12.97,77.6],7);
   L.control.zoom({position:'topright'}).addTo(state.map);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',maxZoom:19}).addTo(state.map);
-  state.marker=L.marker([12.97,77.6],{icon:L.divIcon({className:'farm-marker',iconSize:[18,18],iconAnchor:[9,9]})}).addTo(state.map).bindTooltip('Bengaluru, Karnataka',{direction:'top',offset:[0,-10]});
-  state.map.on('click',event=>{const lat=Math.max(-90,Math.min(90,event.latlng.lat)),lon=((event.latlng.lng+180)%360+360)%360-180;$('latitude').value=lat.toFixed(3);$('longitude').value=lon.toFixed(3);moveMarker(lat,lon);});
+  state.marker=L.marker([12.97,77.6],{draggable:true,icon:L.divIcon({className:'farm-marker',iconSize:[18,18],iconAnchor:[9,9]})}).addTo(state.map).bindTooltip('Bengaluru, Karnataka',{direction:'top',offset:[0,-10]});
+  const choosePoint=point=>selectDraftLocation({lat:Math.max(-90,Math.min(90,point.lat)),lon:((point.lng+180)%360+360)%360-180,name:'Selected farm location'});
+  state.map.on('click',event=>choosePoint(event.latlng));
+  state.marker.on('dragend',()=>choosePoint(state.marker.getLatLng()));
   setLayer();
 }
 const layerDefs={ndvi:['MODIS_Terra_L3_NDVI_16Day','MODIS NDVI · 16-day vegetation composite'],rain:['IMERG_Precipitation_Rate','GPM IMERG · precipitation-rate visualization'],soil:['SMAP_L4_Analyzed_Root_Zone_Soil_Moisture','SMAP · modeled root-zone moisture visualization'],truecolor:['MODIS_Terra_CorrectedReflectance_TrueColor','MODIS Terra · true-color imagery']};
@@ -237,9 +297,13 @@ function setLayer(){
     date=new Date(start+Math.floor((selected.getTime()-start)/86400000/16)*16*86400000).toISOString().slice(0,10);
     $('imagery-date').value=date;
   }
-  if(state.overlay)state.map.removeLayer(state.overlay);
-  $('imagery-date').disabled=key==='archive';
-  if(key==='archive'){
+  if(state.overlay)state.map.removeLayer(state.overlay);state.overlay=null;
+  $('imagery-date').disabled=key==='archive'||key==='streets';
+  document.querySelector('.map-label').innerHTML='<i></i> '+(key==='streets'?'Place names & roads':'Regional satellite context');
+  document.querySelector('.map-card .subtle-badge').textContent=key==='streets'?'OpenStreetMap':'NASA GIBS';
+  if(key==='streets'){
+    $('map-note').textContent='OpenStreetMap place names and roads · zoom in and click or drag the pin to your field. NASA climate data remains regional.';
+  }else if(key==='archive'){
     state.overlay=L.imageOverlay('data/karnataka-modis.jpg',[[9,73],[18,82]],{opacity:.95,attribution:'NASA GIBS / MODIS Terra · 15 Jan 2025'}).addTo(state.map);
     $('map-note').textContent='Saved NASA image · 15 Jan 2025 · Karnataka region only; base map elsewhere. Visual context, not field measurements.';
   }else{
@@ -254,7 +318,7 @@ function setLayer(){
     $('map-note').textContent=`Loading ${label} for ${date}…`;
   }
   const [lat,lon]=[+$('latitude').value,+$('longitude').value];
-  const layer=key==='archive'?layerDefs.truecolor[0]:layerDefs[key][0];
+  const layer=key==='archive'||key==='streets'?layerDefs.truecolor[0]:layerDefs[key][0];
   $('worldview').href='https://worldview.earthdata.nasa.gov/?'+new URLSearchParams({v:`${lon-3},${lat-3},${lon+3},${lat+3}`,t:key==='archive'?'2025-01-15':date,l:layer});
 }
 function download(filename,content,type){const url=URL.createObjectURL(new Blob([content],{type}));const a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);}
@@ -266,9 +330,20 @@ function exportReport(){
 }
 
 $('farm-form').addEventListener('submit',event=>{event.preventDefault();loadClimate(+$('latitude').value,+$('longitude').value);});
+$('place-search-form').addEventListener('submit',findPlaces);
+$('use-location').addEventListener('click',useCurrentLocation);
+for(const id of ['place-query','place-region'])$(id).addEventListener('input',()=>{cancelPlaceSearch();$('place-results').hidden=true;placeMatches=[];placeMessage('Press Search places to find matches.');});
+$('place-results').addEventListener('click',event=>{
+  const button=event.target.closest('[data-place-index]');if(!button)return;
+  const place=placeMatches[+button.dataset.placeIndex];if(!place)return;
+  selectDraftLocation({lat:place.lat,lon:place.lon,name:place.label},{streets:true,zoom:13});
+  $('place-results').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));
+  placeMessage('Place selected. Check its map pin, then load NASA history for this location.');
+  $('load-climate').focus({preventScroll:true});
+});
 for(const id of ['soil','ph','irrigation','crop-0','crop-1','crop-2'])$(id).addEventListener('change',scheduleRecalculate);
 for(const id of ['weight-water','weight-soil','weight-income','weight-risk','scenario-rain','scenario-temp'])$(id).addEventListener('input',scheduleRecalculate);
-for(const id of ['latitude','longitude'])$(id).addEventListener('change',()=>{if($(id).checkValidity())moveMarker(+$('latitude').value,+$('longitude').value);});
+for(const id of ['latitude','longitude'])$(id).addEventListener('change',()=>{if($('latitude').checkValidity()&&$('longitude').checkValidity())selectDraftLocation({lat:+$('latitude').value,lon:+$('longitude').value,name:'Selected farm location'});});
 $('reset-scenario').addEventListener('click',()=>{$('scenario-rain').value=0;$('scenario-temp').value=0;scheduleRecalculate();});
 $('close-dialog').addEventListener('click',()=>$('detail-dialog').close());
 $('detail-dialog').addEventListener('click',event=>{if(event.target===$('detail-dialog')){const r=event.target.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)event.target.close();}});
