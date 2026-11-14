@@ -1,6 +1,6 @@
 # Field Shift: farmer-friendly upgrade audit and proposal
 
-Prepared from the actual project and the supplied upgrade brief. This document is a proposal, not a claim that the upgrade is implemented.
+Prepared from the actual project and the supplied upgrade brief. The findings below record the pre-upgrade audit. The implementation status at the end identifies what has since changed.
 
 ## Existing architecture to preserve
 
@@ -51,11 +51,11 @@ If proceeding with Phase 1, modify:
 - `tests/model.test.mjs` and browser tests: unique recommendations, seasonal eligibility, baseline retention, deterministic ranking, zero weights, scenario changes, export and mobile behavior.
 - `README.md`: update the implemented scope and remaining validation limits.
 
-The broader guided UI can be implemented now if the user's direct UI request takes priority over the brief's staged sequence. A clarification has been requested because the supplied brief explicitly says to report proposals before editing and to stop between phases.
+The direct user request for a simpler farmer interface was used to scope the guided UI work, alongside the audited recommendation selection. The attachment’s later scientific upgrades remain separate.
 
 ## Work already authorized separately
 
-Village search is being completed under the preceding request: Photon/OpenStreetMap and GeoNames/Open-Meteo results, district/state context, matching-name disambiguation, local-script query preservation, a road-map view, a draggable pin, current-location fallback, and clear separation between the selected pin and loaded NASA analysis. This does not constitute implementing the broader upgrade phases.
+Village search was completed under the preceding request: Photon/OpenStreetMap and GeoNames/Open-Meteo results, district/state context, matching-name disambiguation, local-script query preservation, a road-map view, a draggable pin, current-location fallback, and clear separation between the selected pin and loaded NASA analysis. This does not constitute implementing the broader upgrade phases.
 
 ## Still unverified
 
@@ -64,3 +64,12 @@ Village search is being completed under the preceding request: Photon/OpenStreet
 - Real farm outcomes, calibrated irrigation demand, yield, profit or future probabilities.
 - Full multi-location climate validation requested for Phase 5; the new search feature's location checks are not a substitute for that work.
 - No trained recommendation model, recent-weather monitoring, numerical SMAP/IMERG ingestion, or measured soil-water model has been added.
+
+## Implemented after the audit
+
+- Preserved the static app and existing numerical calculations. Added four guided steps in `index.html` / `app.js`, with `farmer.css` overriding the existing visual system.
+- Added plain-language field choices, four priority presets, explicit location confirmation, and one visible planting-plan card at a time. Expanded controls preserve all map, history, scenario, evidence and export functions.
+- Expanded `recommend()` to five unique categories. Kept the true weighted winner and preferred at least two season-slot differences for the remaining categories. The UI and method disclose any relaxed diversity rule and the trade-off between variety and category rank.
+- Kept water, temperature, soil, income and cover formulas unchanged. Corrected broad “POWER observations” wording to historical estimates. Exposed possible historical water gaps without presenting them as future odds.
+- Export now includes all five categories. Model tests cover uniqueness, two-slot diversity, baseline retention, seasonal feasibility, score bounds and zero-weight/scenario cases. Browser tests cover all four steps, presets, validation, every category, NASA failure handling, preserved tools and mobile overflow.
+- The deferred scientific findings above remain relevant. This is not completion of all five upgrade phases and does not constitute agronomic validation.

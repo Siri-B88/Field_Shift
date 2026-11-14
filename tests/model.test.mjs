@@ -59,12 +59,20 @@ assert.deepEqual(result.baseline.ids,settings.rotation);
 assert.notDeepEqual(result.best.ids,result.alternate.ids);
 assert.notDeepEqual(result.best.ids,settings.rotation);
 assert.ok(result.count>100);
-for(const r of [result.baseline,result.best,result.alternate]){
+const plans=[result.baseline,result.best,result.alternate,result.soil,result.climate];
+assert.equal(new Set(plans.map(r=>r.ids.join())).size,5,'All five plan categories must be unique.');
+for(const r of plans){
   assert.ok(r.score>=0&&r.score<=100);
   for(const value of Object.values(r.scores))assert.ok(value>=0&&value<=100);
   assert.equal(r.yearly.length,19);
   assert.ok(r.covered+r.severe<=r.yearly.length);
 }
 assert.ok(result.best.feasible&&result.alternate.feasible);
+assert.ok(result.soil.feasible&&result.climate.feasible);
+for(let i=2;i<plans.length;i++)for(let j=0;j<i;j++)assert.ok(plans[i].ids.filter((id,k)=>id!==plans[j].ids[k]).length>=2,'The example has enough alternatives to change at least two seasons.');
+const other=recommend(climate,{...settings,rotation:['fallow','fallow','fallow'],soil:'sandy',ph:4.5,irrigation:150,weights:{water:0,soil:0,income:0,risk:0}},{rain:-30,temp:3});
+assert.deepEqual(other.baseline.ids,['fallow','fallow','fallow'],'Even an excluded baseline remains visible.');
+assert.equal(new Set(['baseline','best','alternate','soil','climate'].map(k=>other[k].ids.join())).size,5);
+for(const key of ['best','alternate','soil','climate'])assert.ok(other[key].feasible&&Number.isFinite(other[key].score));
 assert.equal(CROPS.length,13);
 console.log(JSON.stringify({tests:'passed',annualYears:climate.annual.length,rotationYears:climate.rotations.length,rain:climate.rain,temp:climate.temp,wetness:climate.wet,candidates:result.count,best:result.best.ids,alternate:result.alternate.ids,baselineDeficit:base.deficit},null,2));

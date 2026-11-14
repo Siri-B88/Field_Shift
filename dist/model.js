@@ -111,8 +111,23 @@ export function recommend(climate,settings,scenario={rain:0,temp:0}) {
   }
   results.sort((a,b)=>b.score-a.score||a.need-b.need);
   const best=results[0];
-  const alternate=results.filter(r=>r.ids.some((id,i)=>id!==best.ids[i])).sort((a,b)=>b.scores.water-a.scores.water||a.need-b.need||b.score-a.score)[0];
-  return {baseline,best,alternate,count:results.length,scenario};
+  const chosen=[baseline,best];
+  const distance=(a,b)=>a.ids.filter((id,i)=>id!==b.ids[i]).length;
+  // Keep the true weighted winner. Other categories prefer at least two changed
+  // season slots from every already displayed plan, including the baseline.
+  const pick=(compare)=>{
+    const unique=results.filter(r=>chosen.every(c=>distance(r,c)>0));
+    const diverse=unique.filter(r=>chosen.every(c=>distance(r,c)>=2));
+    const pool=diverse.length?diverse:unique;
+    const winner=[...pool].sort(compare)[0];
+    if(!winner)throw new Error('Not enough distinct season-eligible plans.');
+    const result={...winner,diversityRelaxed:!diverse.length};
+    chosen.push(result);return result;
+  };
+  const alternate=pick((a,b)=>b.scores.water-a.scores.water||a.need-b.need||b.score-a.score);
+  const soil=pick((a,b)=>b.scores.soil-a.scores.soil||b.scores.cover-a.scores.cover||b.score-a.score);
+  const weather=pick((a,b)=>b.scores.climate-a.scores.climate||b.covered-a.covered||a.deficit-b.deficit||b.score-a.score);
+  return {baseline,best,alternate,soil,climate:weather,count:results.length,scenario};
 }
 export function powerUrl(lat,lon) {
   if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)throw new Error('Enter valid latitude (−90 to 90) and longitude (−180 to 180).');

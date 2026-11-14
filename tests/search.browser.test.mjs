@@ -21,7 +21,7 @@ try{
   // Synthetic NASA fixture is confined to this browser test, never bundled as farm data.
   await page.route('https://power.larc.nasa.gov/**',r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(raw)}));
   await page.goto('http://127.0.0.1:5173',{waitUntil:'domcontentloaded'});
-  await page.locator('.rotation-card').first().waitFor();
+  await page.locator('.rotation-card').first().waitFor({state:'attached'});
   await page.locator('#place-query').fill('Kallur');assert.equal(requests,0,'Typing alone must not call place services.');
   await page.locator('#place-region').fill('Telangana');await page.locator('#place-query').press('Enter');
   await page.waitForFunction(()=>document.querySelectorAll('.place-result').length===2);
@@ -33,10 +33,12 @@ try{
   assert.match(await page.locator('#location-name').innerText(),/Bengaluru/,'Selecting a pin must not relabel the old NASA analysis.');
   await page.locator('#load-climate').click();
   await page.waitForFunction(()=>document.querySelector('#location-name').textContent.includes('Nalgonda'));
-  assert.match(await page.locator('#selected-place').innerText(),/NASA analysis loaded/);
+  assert.match(await page.locator('#selected-place').textContent(),/NASA analysis loaded/);
   // Names must survive in the downloadable report.
+  await page.locator('.step-nav [data-step="4"]').click();
   const downloadPromise=page.waitForEvent('download');await page.locator('#export').click();
   const report=await downloadPromise;assert.equal(report.suggestedFilename(),'field-shift-rotation-report.html');
+  await page.locator('.step-nav [data-step="1"]').click();
   async function lookup(query){await page.locator('#place-query').fill(query);await page.locator('#place-query').press('Enter');await page.waitForFunction(()=>!document.querySelector('#search-places').disabled);}
   await lookup('Missing');assert.match(await page.locator('#place-search-status').innerText(),/No matching place/);assert.equal(await page.locator('#place-results').isVisible(),false);
   await lookup('Unavailable');assert.match(await page.locator('#place-search-status').innerText(),/unavailable/);

@@ -19,12 +19,12 @@ From the parent workspace, run `python field-shift/run.py`. The launcher finds t
 | Guide requirement | Implementation |
 | --- | --- |
 | Location selection | Village/town/postal-code search, district/state context, current-location fallback, labeled road map, draggable pin and validated coordinates |
-| NASA observations | Real NASA POWER daily rainfall, mean/max/min air temperature and modeled root-zone wetness; 2006–2025 |
+| NASA historical estimates | Real NASA POWER daily rainfall, mean/max/min air temperature and modeled root-zone wetness; 2006–2025 |
 | Local soil knowledge | Sandy / loam / clay, optional pH, explicit irrigation assumptions |
 | Crop characteristics | 12 crops plus residue-covered fallow; all traits visible in Method & limitations |
-| Farmer priorities | Water, soil, income index, lower exposure; weights normalized |
+| Farmer priorities | Four plain-language presets plus custom water, soil, income and exposure weights |
 | Climate history | Annual rainfall/temperature charts, least-squares trends, peak heat, rainfall variability and ranges, wetness, seasonal rain and longest dry spells |
-| Rotation comparison | Baseline always retained; highest weighted score; distinct water-first alternative |
+| Rotation comparison | Five unique categories: baseline, priorities, water, soil and weather; one visible card at a time |
 | Historical uncertainty | Every rotation replayed over all complete June–May cycles; coverage counts, shortfall range and an inspectable year-by-year table |
 | What-if | Rainfall −30% to +30%; temperature +0 to +3°C; scores recomputed |
 | Explanations | Why / risk / evidence / unknowns, seasonal water accounting, exposed rules |
@@ -53,13 +53,25 @@ The script preserves an existing POWER snapshot and uses public NASA/Leaflet URL
 
 ## Finding villages
 
-Enter a village, town or PIN/postal code, optionally add its district/state, and press **Search places**. Choose the correct match, check the pin on the labeled road map, then press **Load NASA history**. The previous analysis keeps its location label until new climate data loads successfully. The selected place name appears in the exported report.
+Enter a village, town or PIN/postal code, optionally add its district/state, and press **Search places**. Choose the correct match, check the pin on the labeled road map, then press **Use this location**. The previous analysis keeps its location label until new climate data loads successfully. The selected place name appears in the exported report.
 
 Search combines [Photon/OpenStreetMap](https://photon.komoot.io/) with [GeoNames via Open-Meteo](https://open-meteo.com/en/docs/geocoding-api). It does not restrict results to Bengaluru or exclude hamlets. Same-name places in different regions remain separate; nearby duplicate records are merged. Queries preserve local scripts. Search happens only on explicit submission; successful searches are cached in memory for ten minutes. These public services have incomplete coverage and usage limits; larger/commercial deployments should configure appropriate dedicated/paid service access. No public Nominatim API is used.
 
 If a village is missing, try another spelling, a nearby town or postal code, use **Use my location** (browser permission required), or click/drag the map pin. A place result is a locality center, not a verified field boundary. Five decimal places help place the pin; they do not improve NASA POWER's regional resolution.
 
 Additional checks: `node tests/geocoding.test.mjs`, `node tests/search.browser.test.mjs` (local server required), and `node tests/live-search.mjs` (network required).
+
+## Simple farmer workflow
+
+The existing app now uses four steps: **My village → My field → My priorities → My planting plans**. Village search and roads appear first. Satellite layers and coordinates are optional expandable controls. Location confirmation must succeed before advancing; selecting a new pin invalidates confirmation without relabeling the previous analysis.
+
+Soil descriptions and irrigation choices use plain language. Soil pH and assumed irrigation amounts remain available under field details. Four priority buttons set the existing weights; custom sliders remain available. All-zero weights still use the original equal-component fallback.
+
+Five unique categories are shown one at a time: current crops, priorities, water first, soil first and weather first. The weighted winner is retained; remaining categories prefer two changed season slots from every previously selected plan. Selection then ranks by the category metric, with deterministic tie-breaks. If two-slot diversity is impossible, uniqueness is retained and the relaxation is disclosed. These are model comparisons, not locally validated planting prescriptions.
+
+Each card shows the crop sequence, benefit, concern and historical count of possible seasonal water gaps. Component comparisons, full water accounting, historical replay, scenarios, climate charts/tables, all 25 resource entries, raw NASA downloads and five-plan export remain accessible. The interface retains the cream/green identity, larger text and touch targets, keyboard focus, and mobile layouts tested at 390 px and 320 px.
+
+This UI/selection update follows the user's direct request for a simpler farmer experience. The audit remains in `UPGRADE-AUDIT.md`; deeper water/temperature calibration, median/dry-year risk extensions and multi-location agronomic validation are separate unfinished stages of the supplied brief. No scientific validation or new numerical NASA integration is claimed.
 
 ## Scientific scope
 
@@ -76,7 +88,7 @@ Additional checks: `node tests/geocoding.test.mjs`, `node tests/search.browser.t
 
 ## Resource integration status
 
-The app's Data & resources panel includes all 25 resource entries from the brief (some combined entries are grouped):
+The app's Data & help panel includes all 25 resource entries from the brief (some combined entries are grouped):
 
 - **Numerical integration:** NASA POWER.
 - **Live map visualizations:** MODIS (GIBS), GPM IMERG, SMAP. MODIS also has a saved image.
@@ -98,7 +110,7 @@ The numerical suite checks calendar boundaries/leap years, missing observations,
 
 ## Files
 
-- `dist/index.html`, `styles.css`, `app.js`: interface, map, data loading, provenance and export.
+- `dist/index.html`, `styles.css`, `farmer.css`, `app.js`: interface, map, data loading, provenance and export.
 - `dist/model.js`: pure climate summarization and rotation scoring/search.
 - `dist/data/`: original numerical snapshot, MODIS imagery and imagery metadata.
 - `dist/vendor/`: Leaflet 1.9.4 assets, retaining upstream license comments.
