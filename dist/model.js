@@ -67,7 +67,7 @@ export function scoreRotation(ids, climate, settings, scenario={rain:0,temp:0}) 
   if(crops.some(c=>!c)) throw new Error('Unknown crop.');
   const rainFactor=1+scenario.rain/100;
   const capture={sandy:0.65,loam:0.8,clay:0.75}[settings.soil]??0.8;
-  const irrigation=Number(settings.irrigation)||0;
+  const irrigation=(Number(settings.irrigation)||0)*(1-Math.max(0,Math.min(100,Number(scenario.irrigationReduction)||0))/100);
   const active=crops.filter(c=>c.water[1]>0).length;
   const yearly=climate.rotations.map(y=>{
     const parts=crops.map((crop,i)=>{

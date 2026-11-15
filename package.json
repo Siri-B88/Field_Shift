@@ -8,6 +8,7 @@
     "start": "python run.py",
     "test": "node tests/model.test.mjs"
   },
+  "dependencies": {"i18next": "25.8.0"},
   "devDependencies": {
     "@playwright/test": "^1.65.1"
   }

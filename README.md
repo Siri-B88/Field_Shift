@@ -66,7 +66,7 @@ Additional checks: `node tests/geocoding.test.mjs`, `node tests/search.browser.t
 The existing app now uses four steps: **My village → My field → My priorities → My planting plans**. Village search and roads appear first. Satellite layers and coordinates are optional expandable controls. Location confirmation must succeed before advancing; selecting a new pin invalidates confirmation without relabeling the previous analysis.
 
 Soil descriptions and irrigation choices use plain language. Soil pH and assumed irrigation amounts remain available under field details. Four priority buttons set the existing weights; custom sliders remain available. All-zero weights still use the original equal-component fallback.
-
+   
 Five unique categories are shown one at a time: current crops, priorities, water first, soil first and weather first. The weighted winner is retained; remaining categories prefer two changed season slots from every previously selected plan. Selection then ranks by the category metric, with deterministic tie-breaks. If two-slot diversity is impossible, uniqueness is retained and the relaxation is disclosed. These are model comparisons, not locally validated planting prescriptions.
 
 Each card shows the crop sequence, benefit, concern and historical count of possible seasonal water gaps. Component comparisons, full water accounting, historical replay, scenarios, climate charts/tables, all 25 resource entries, raw NASA downloads and five-plan export remain accessible. The interface retains the cream/green identity, larger text and touch targets, keyboard focus, and mobile layouts tested at 390 px and 320 px.
